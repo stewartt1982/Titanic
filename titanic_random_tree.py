@@ -47,27 +47,47 @@ full_data=[train,test]
 
 #covert the Cabin variable to a binary 'Has_cabin' variable
 #NaN is a float
-train['Has_Cabin'] = train['Cabin'].apply(lambda x: 0 if type(x) == float else 1)
-test['Has_Cabin'] = test['Cabin'].apply(lambda x: 0 if type(x) == float else 1)
+
+#train['Has_Cabin'] = train['Cabin'].apply(lambda x: 0 if type(x) == float else 1)
+#test['Has_Cabin'] = test['Cabin'].apply(lambda x: 0 if type(x) == float else 1)
 
 #group SibSp and Parch together into family size
 for dataset in full_data:
+    #deal with the cabin information
+    #Can we be more clever with cabin?
+    #Replace those with no cabin with a placeholder U0 (undefined 0)
+    #We will extract deck letter and cabin number  Encode cabin number
+    #as either fore, aft or middle
+    #For U0 use the average value for each class
+    dataset['Cabin'] = dataset['Cabin'].fillna('U0')
+    dataset['Deck'] = dataset['Cabin'].map(lambda x: re.compile("([a-zA-Z]+)").search(x).group())
+    #Cabin letters
+    #A,B,C,D,E,F,G,U for undefined
+    dataset['Deck'] = dataset["Deck"].map({'A':1,'B':2,'C':3,'D':4,'E':5,'F':6,'G':7,'T':8,'U':0}).astype(int)
+    #No assign those with Deck == 0 to the average for their class
+    dataset.loc[(dataset['Deck'] == 0),'Deck'] = np.nan
+    dataset['Deck'] = dataset['Deck'].fillna(dataset.groupby('Pclass')['Deck'].transform('mean')).astype(int)
+    
     dataset["FamilySize"] = dataset["SibSp"]+dataset["Parch"] + 1
     dataset["IsAlone"] = 0
     dataset.loc[dataset["FamilySize"] == 1,"IsAlone"] = 1
 
     #now deal with missing data
     dataset["Embarked"] = dataset["Embarked"].fillna('S')
-    dataset['Fare'] = dataset['Fare'].fillna(train['Fare'].median())
+    #Let us predict fare based on class, as fares will vary depending on
+    #1st,2nd or 3rd class
+    dataset['Fare'] = dataset['Fare'].fillna(dataset.groupby('Pclass')['Fare'].transform('median'))
+    
 
     #Nulls in the age
     #get the mean age, and the std. deviation and randomly assign
-    avg_age = dataset['Age'].mean()
-    avg_age_std = dataset['Age'].std()
-    age_null_count = dataset['Age'].isnull().sum()
-    age_null_random_list = np.random.randint(avg_age - avg_age_std,avg_age+avg_age_std,size = age_null_count)
-    #relace the NaNs with the random list
-    dataset.loc[np.isnan(dataset['Age']), 'Age'] = age_null_random_list
+    dataset['Age'] = dataset['Age'].fillna(dataset.groupby('Pclass')['Age'].transform('mean'))
+    # avg_age = dataset['Age'].mean()
+    # avg_age_std = dataset['Age'].std()
+    # age_null_count = dataset['Age'].isnull().sum()
+    # age_null_random_list = np.random.randint(avg_age - avg_age_std,avg_age+avg_age_std,size = age_null_count)
+    # #relace the NaNs with the random list
+    # dataset.loc[np.isnan(dataset['Age']), 'Age'] = age_null_random_list
     dataset["Age"] = dataset["Age"].astype(int)
 
     #encode sex
@@ -96,24 +116,25 @@ for dataset in full_data:
     #encode the embarkation as a number
     dataset['Embarked'] = dataset["Embarked"].map({'S':0,'C':1,'Q':2}).astype(int)
 
-    #convert Fare into 4 categories
-    dataset.loc[ dataset['Fare'] <= 7.91, 'Fare']         = 0
-    dataset.loc[(dataset['Fare'] > 7.91) & (dataset['Fare'] <= 14.454), 'Fare'] = 1
-    dataset.loc[(dataset['Fare'] > 14.454) & (dataset['Fare'] <= 31), 'Fare']   = 2
-    dataset.loc[ dataset['Fare'] > 31, 'Fare']         = 3
-    dataset['Fare'] = dataset['Fare'].astype(int)
+    # #convert Fare into 4 categories
+    # dataset.loc[ dataset['Fare'] <= 7.91, 'Fare']         = 0
+    # dataset.loc[(dataset['Fare'] > 7.91) & (dataset['Fare'] <= 14.454), 'Fare'] = 1
+    # dataset.loc[(dataset['Fare'] > 14.454) & (dataset['Fare'] <= 31), 'Fare']   = 2
+    # dataset.loc[ dataset['Fare'] > 31, 'Fare']         = 3
+    # dataset['Fare'] = dataset['Fare'].astype(int)
 
-    # Mapping Age
-    dataset.loc[ dataset['Age'] <= 16, 'Age']        = 0
-    dataset.loc[(dataset['Age'] > 16) & (dataset['Age'] <= 32), 'Age'] = 1
-    dataset.loc[(dataset['Age'] > 32) & (dataset['Age'] <= 48), 'Age'] = 2
-    dataset.loc[(dataset['Age'] > 48) & (dataset['Age'] <= 64), 'Age'] = 3
-    dataset.loc[ dataset['Age'] > 64, 'Age'] ;
+    # # Mapping Age
+    # dataset.loc[ dataset['Age'] <= 16, 'Age']        = 0
+    # dataset.loc[(dataset['Age'] > 16) & (dataset['Age'] <= 32), 'Age'] = 1
+    # dataset.loc[(dataset['Age'] > 32) & (dataset['Age'] <= 48), 'Age'] = 2
+    # dataset.loc[(dataset['Age'] > 48) & (dataset['Age'] <= 64), 'Age'] = 3
+    # dataset.loc[ dataset['Age'] > 64, 'Age'] ;
 
 # Feature selection: remove variables no longer containing relevant information
 drop_elements = ['PassengerId', 'Name', 'Ticket', 'Cabin', 'SibSp']
 train = train.drop(drop_elements, axis = 1)
 test  = test.drop(drop_elements, axis = 1)
+
 
 #check that everything is numeric
 #print train.head(32)
@@ -136,23 +157,23 @@ gini_impurity_starting_node = get_gini_impurity(342, 891)
 #
 #Using a RandomForestClassifier
 #
-# Number of random trials
-NUM_TRIALS = 10
+#
+# # Number of random trials
+# NUM_TRIALS = 10
 
-# Set up possible values of parameters to optimize over
-# Use a grid over parameters of interest
-param_grid = {
-    "n_estimators" : [9, 18, 27, 36, 45, 54, 63],
-    "max_depth" : [1, 5, 10, 15, 20, 25, 30],
-    "min_samples_leaf" : [1, 2, 4, 6, 8, 10]}
+# # Set up possible values of parameters to optimize over
+# # Use a grid over parameters of interest
+# param_grid = {
+#     "n_estimators" : [10, 60, 110, 200, 300, 500],
+#     "max_depth" : [1, 5, 10, 15, 20, 25, 30]}
 
-# Arrays to store scores
-non_nested_scores = np.zeros(NUM_TRIALS)
-nested_scores = np.zeros(NUM_TRIALS)
+# # Arrays to store scores
+# non_nested_scores = np.zeros(NUM_TRIALS)
+# nested_scores = np.zeros(NUM_TRIALS)
 
-#create the random forest classifier
-# RFC with fixed hyperparameters max_depth, max_features and min_samples_leaf
-rfc = ensemble.RandomForestClassifier(n_jobs=-1) 
+# #create the random forest classifier
+# # RFC with fixed hyperparameters max_depth, max_features and min_samples_leaf
+# rfc = ensemble.RandomForestClassifier(n_jobs=-1) 
 
 # # Loop for each trial
 # for i in range(NUM_TRIALS):
@@ -179,7 +200,7 @@ rfc = ensemble.RandomForestClassifier(n_jobs=-1)
 #       .format(score_difference.mean(), score_difference.std()))
 
 ############
-rffinal = ensemble.RandomForestClassifier(n_jobs=-1,n_estimators=27, max_depth=30, min_samples_leaf=6)
+rffinal = ensemble.RandomForestClassifier(n_jobs=-1,n_estimators=200,max_depth=10)
 rffinal.fit(X = train.drop(['Survived'],axis=1), y = train['Survived'])
 
 prediction = rffinal.predict(test)
